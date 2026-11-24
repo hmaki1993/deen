@@ -1,51 +1,44 @@
 /**
- * ════════════════════════════════════════════
- *  دين (Deen) — Theme Toggle Module
- * ════════════════════════════════════════════
- *  Manages dark/light theme state. Persists
- *  to localStorage, respects OS preference on
- *  first visit, and dispatches a custom
- *  'themechange' event for other modules.
- * ════════════════════════════════════════════
+ * دين (Deen) — Theme Toggle Module
+ * Single source of truth for dark/light theme + meta theme-color sync.
  */
 
-/**
- * Get the current active theme
- * @returns {'dark'|'light'}
- */
 export function getTheme() {
   return document.documentElement.getAttribute('data-theme') || 'dark';
 }
 
-/**
- * Apply a theme and persist the choice
- * @param {'dark'|'light'} theme
- */
 export function setTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  localStorage.setItem('deen-theme', theme);
+  const valid = theme === 'light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', valid);
+  try {
+    localStorage.setItem('deen-theme', valid);
+  } catch {
+    // Ignore
+  }
 
-  // Notify listeners (e.g. header icon update)
-  window.dispatchEvent(new CustomEvent('themechange', { detail: { theme } }));
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  if (metaTheme) {
+    metaTheme.setAttribute('content', valid === 'light' ? '#F5F3EF' : '#0A0A0F');
+  }
+
+  window.dispatchEvent(new CustomEvent('themechange', { detail: { theme: valid } }));
 }
 
-/**
- * Toggle between dark ↔ light
- */
 export function toggleTheme() {
   setTheme(getTheme() === 'dark' ? 'light' : 'dark');
 }
 
-/**
- * Initialize theme on app startup.
- * Priority: localStorage → OS preference → dark (default)
- */
 export function initTheme() {
-  const saved = localStorage.getItem('deen-theme');
+  let saved = null;
+  try {
+    saved = localStorage.getItem('deen-theme');
+  } catch {
+    // Ignore
+  }
 
-  if (saved) {
+  if (saved === 'light' || saved === 'dark') {
     setTheme(saved);
-  } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+  } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
     setTheme('light');
   } else {
     setTheme('dark');

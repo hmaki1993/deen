@@ -1,158 +1,118 @@
 /**
- * ═══════════════════════════════════════════════════════════════
  * Deen App — Quran API Service
- * ═══════════════════════════════════════════════════════════════
- * Fetches Quran data from the AlQuran Cloud API (alquran.cloud)
- * with a localStorage caching layer (24-hour TTL) to minimize
- * network requests and enable offline-first behaviour.
- * ═══════════════════════════════════════════════════════════════
+ * Fetches Quran data from AlQuran Cloud API with non-blocking IndexedDB +
+ * In-Memory LRU caching and in-flight request deduplication.
  */
-
-const BASE_URL = 'https://api.alquran.cloud/v1';
 
 import { SURAH_START_PAGES } from '../utils/quran-metadata.js';
+import { getQuranCache, setQuranCache } from '../utils/quran-db.js';
+import { normalizeArabicWords } from '../utils/arabic.js';
 
-/** Cache key prefix in localStorage */
-const CACHE_KEY = 'deen-quran-cache';
+const BASE_URL = 'https://api.alquran.cloud/v1';
+const FETCH_TIMEOUT_MS = 12000;
 
-/** Cache time-to-live: 24 hours in milliseconds */
-const CACHE_TTL = 24 * 60 * 60 * 1000;
+/** Deduplicate concurrent requests for the same resource */
+const inflightRequests = new Map();
 
-// ─── Cache Helpers ────────────────────────────────────────────
-
-/**
- * Retrieve data from the local cache if it exists and hasn't expired.
- * @param {string} key - Sub-key within the cache namespace
- * @returns {*|null} Cached data or null if miss / expired
- */
-function getCache(key) {
+async function fetchJsonWithTimeout(url, timeoutMs = FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
-    const item = cache[key];
-    if (item && Date.now() - item.timestamp < CACHE_TTL) {
-      return item.data;
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
     }
-  } catch (e) {
-    /* Silently ignore corrupt cache */
-  }
-  return null;
-}
-
-/**
- * Persist data into the local cache with a timestamp.
- * @param {string} key  - Sub-key within the cache namespace
- * @param {*}      data - Serialisable data to store
- */
-function setCache(key, data) {
-  try {
-    const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
-    cache[key] = { data, timestamp: Date.now() };
-    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
-  } catch (e) {
-    /* Storage full or unavailable — continue without caching */
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-// ─── API Functions ────────────────────────────────────────────
+async function cachedFetch(cacheKey, url, errorLabel) {
+  const cached = await getQuranCache(cacheKey);
+  if (cached) return cached;
 
-/**
- * Fetch the complete list of all 114 surahs.
- * Each surah object contains: number, name, englishName,
- * englishNameTranslation, numberOfAyahs, revelationType.
- *
- * @returns {Promise<Array>} Array of surah metadata objects
- * @throws {Error} If the API returns a non-200 status
- */
+  if (inflightRequests.has(cacheKey)) {
+    return inflightRequests.get(cacheKey);
+  }
+
+  const req = (async () => {
+    try {
+      const json = await fetchJsonWithTimeout(url);
+      if (json && json.code === 200 && json.data) {
+        await setQuranCache(cacheKey, json.data);
+        return json.data;
+      }
+      throw new Error(`Failed to fetch ${errorLabel}`);
+    } finally {
+      inflightRequests.delete(cacheKey);
+    }
+  })();
+
+  inflightRequests.set(cacheKey, req);
+  return req;
+}
+
 export async function getSurahList() {
-  const cached = getCache('surah-list');
-  if (cached) return cached;
-
-  const res = await fetch(`${BASE_URL}/surah`);
-  const json = await res.json();
-
-  if (json.code === 200) {
-    setCache('surah-list', json.data);
-    return json.data;
-  }
-
-  throw new Error('Failed to fetch surah list');
+  return cachedFetch('surah-list', `${BASE_URL}/surah`, 'surah list');
 }
 
-/**
- * Fetch a single surah with Uthmani script text.
- * Returns the surah metadata plus an `ayahs` array where each
- * ayah has: number, text (Uthmani), numberInSurah, juz, page, etc.
- *
- * @param {number} number - Surah number (1–114)
- * @returns {Promise<Object>} Surah data with ayahs in Uthmani script
- * @throws {Error} If the API returns a non-200 status
- */
 export async function getSurah(number) {
-  const cached = getCache(`surah-${number}`);
-  if (cached) return cached;
-
-  const res = await fetch(`${BASE_URL}/surah/${number}/quran-uthmani`);
-  const json = await res.json();
-
-  if (json.code === 200) {
-    setCache(`surah-${number}`, json.data);
-    return json.data;
-  }
-
-  throw new Error(`Failed to fetch surah ${number}`);
+  const validNum = Math.min(114, Math.max(1, parseInt(number, 10) || 1));
+  return cachedFetch(
+    `surah-${validNum}`,
+    `${BASE_URL}/surah/${validNum}/quran-uthmani`,
+    `surah ${validNum}`
+  );
 }
 
-/**
- * Fetch a single page with Uthmani script text.
- * Returns an object with the page's ayahs.
- *
- * @param {number} number - Page number (1–604)
- * @returns {Promise<Object>} Page data with ayahs
- * @throws {Error} If the API returns a non-200 status
- */
 export async function getPage(number) {
-  const cached = getCache(`page-${number}`);
-  if (cached) return cached;
-
-  const res = await fetch(`${BASE_URL}/page/${number}/quran-uthmani`);
-  const json = await res.json();
-
-  if (json.code === 200) {
-    setCache(`page-${number}`, json.data);
-    return json.data;
-  }
-
-  throw new Error(`Failed to fetch page ${number}`);
+  const validPage = Math.min(604, Math.max(1, parseInt(number, 10) || 1));
+  return cachedFetch(
+    `page-${validPage}`,
+    `${BASE_URL}/page/${validPage}/quran-uthmani`,
+    `page ${validPage}`
+  );
 }
 
-/**
- * Get the starting page number for a given surah.
- * 
- * @param {number} number - Surah number (1-114)
- * @returns {number} The starting page number
- */
 export function getSurahStartPage(number) {
-  return SURAH_START_PAGES[String(number)] || 1;
+  const validNum = Math.min(114, Math.max(1, parseInt(number, 10) || 1));
+  return SURAH_START_PAGES[String(validNum)] || 1;
 }
 
 /**
- * Client-side search/filter across the surah list.
- * Matches against Arabic name, English name, English translation,
- * or surah number.
- *
- * @param {Array}  surahs - Full surah list from getSurahList()
- * @param {string} query  - User search input
- * @returns {Array} Filtered surah array
+ * Resolve exact Mushaf page number for a given (surahNumber, ayahNumber).
+ */
+export async function getPageForAyah(surahNumber, ayahNumber) {
+  const startPage = getSurahStartPage(surahNumber);
+  if (!ayahNumber || ayahNumber <= 1) return startPage;
+
+  try {
+    const surah = await getSurah(surahNumber);
+    const ayah = surah?.ayahs?.find((a) => a.numberInSurah === ayahNumber);
+    if (ayah && ayah.page) return ayah.page;
+  } catch {
+    // Fallback to surah start page
+  }
+  return startPage;
+}
+
+/**
+ * Normalized Arabic + English + numeric surah search (strips diacritics & unifies Alef forms).
  */
 export function searchSurahs(surahs, query) {
-  if (!query) return surahs;
+  const trimmed = (query || '').trim();
+  if (!trimmed) return surahs;
 
-  const q = query.toLowerCase();
+  const qLower = trimmed.toLowerCase();
+  const qNormAr = normalizeArabicWords(trimmed);
 
-  return surahs.filter(s =>
-    s.name.includes(query) ||
-    s.englishName.toLowerCase().includes(q) ||
-    s.englishNameTranslation.toLowerCase().includes(q) ||
-    String(s.number) === query
-  );
+  return surahs.filter((s) => {
+    if (String(s.number) === trimmed) return true;
+    if (s.englishName?.toLowerCase().includes(qLower)) return true;
+    if (s.englishNameTranslation?.toLowerCase().includes(qLower)) return true;
+    if (s.name?.includes(trimmed)) return true;
+    if (qNormAr && normalizeArabicWords(s.name).includes(qNormAr)) return true;
+    return false;
+  });
 }

@@ -46,7 +46,9 @@ export function formatTime(timeStr) {
  * @returns {number} Milliseconds until target time
  */
 export function getTimeDiff(timeStr) {
+  if (!timeStr || !timeStr.includes(':')) return 0;
   const [hours, minutes] = timeStr.split(':').map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return 0;
   const now = new Date();
   const target = new Date();
   target.setHours(hours, minutes, 0, 0);

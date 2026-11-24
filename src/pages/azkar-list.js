@@ -1,14 +1,11 @@
 /**
- * ═══════════════════════════════════════════════
- *  دين — Azkar Categories Page
- *  Displays a grid of azkar category cards
- * ═══════════════════════════════════════════════
+ * دين — Azkar Categories Page
  */
 
 import { t } from '../i18n/index.js';
 import { getCategories } from '../api/azkar.js';
+import { formatNum } from '../utils/helpers.js';
 
-// ─── Main Render ────────────────────────────────
 export function render(container) {
   const categories = getCategories();
 
@@ -23,7 +20,7 @@ export function render(container) {
           <a href="#/azkar/${cat.id}" class="azkar-category-card glass-card">
             <span class="azkar-category__icon">${cat.icon}</span>
             <span class="azkar-category__name">${cat.name}</span>
-            <span class="azkar-category__count">${cat.count} ${t('azkar_items')}</span>
+            <span class="azkar-category__count">${formatNum(cat.count)} ${t('azkar_items')}</span>
           </a>
         `
           )

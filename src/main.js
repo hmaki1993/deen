@@ -1,131 +1,190 @@
 /**
- * دين (Deen) - Main Application Entry
- * Premium Islamic App
+ * دين (Deen) — Main Application Entry
  */
 
+import './fonts.css';
 import './style.css';
 import { route, initRouter, setCleanup } from './router.js';
 import { initTheme } from './components/theme-toggle.js';
 import { renderHeader, initHeaderEvents } from './components/header.js';
-import { renderNavbar } from './components/navbar.js';
+import { renderNavbar, updateNavbarActive } from './components/navbar.js';
+import { closeReciterModal } from './components/reciter-modal.js';
 import { getParentalLock } from './utils/storage.js';
 
 // Pages
 import { render as renderHome, cleanup as cleanupHome } from './pages/home.js';
-import { render as renderQuranList } from './pages/quran-list.js';
+import { render as renderQuranList, cleanup as cleanupQuranList } from './pages/quran-list.js';
 import { render as renderQuranReader, cleanup as cleanupQuranReader } from './pages/quran-reader.js';
 import { render as renderMushafReader, cleanup as cleanupMushafReader } from './pages/mushaf-reader.js';
 import { render as renderAzkarList } from './pages/azkar-list.js';
 import { render as renderAzkarView } from './pages/azkar-view.js';
-import { render as renderPrayer } from './pages/prayer.js';
+import { render as renderPrayer, cleanup as cleanupPrayer } from './pages/prayer.js';
 import { render as renderQibla, cleanup as cleanupQibla } from './pages/qibla.js';
 
+function parseSurahId(raw) {
+  const num = parseInt(raw, 10);
+  if (!Number.isFinite(num) || num < 1 || num > 114) return 1;
+  return num;
+}
+
+function parseAyahId(raw) {
+  const num = parseInt(raw, 10);
+  if (!Number.isFinite(num) || num < 1) return null;
+  return num;
+}
+
 /**
- * Initialize the application
+ * Global Android hardware Back button handler invoked from MainActivity.java.
+ * Returns true if back was consumed internally; false lets Android minimize the app.
  */
+window.__deenHandleBack = function () {
+  // 1. Close open PIN modal
+  const pinOverlay = document.getElementById('pin-modal-overlay');
+  if (pinOverlay && pinOverlay.classList.contains('active')) {
+    document.getElementById('pin-cancel-btn')?.click();
+    return true;
+  }
+
+  // 2. Close open Reciter modal
+  const reciterModal = document.getElementById('reciter-modal');
+  if (reciterModal && !reciterModal.classList.contains('hidden')) {
+    closeReciterModal();
+    return true;
+  }
+
+  // 3. Close open Audio Settings drawer
+  const audioSettings = document.getElementById('audio-settings-card');
+  if (audioSettings && !audioSettings.classList.contains('hidden')) {
+    audioSettings.classList.add('hidden');
+    return true;
+  }
+
+  // 4. Close open Ayah context menu
+  const ctxMenu = document.getElementById('ayah-context-menu');
+  if (ctxMenu && !ctxMenu.classList.contains('hidden')) {
+    document.getElementById('ctx-backdrop')?.click();
+    return true;
+  }
+
+  // 5. Respect Parental Lock when inside reader
+  if (getParentalLock()) {
+    document.getElementById('quran-back-btn')?.click();
+    return true;
+  }
+
+  // 6. Navigate cleanly up hierarchy
+  const hash = window.location.hash || '#/';
+  if (/^#\/quran\/\d+/.test(hash)) {
+    window.location.hash = '#/quran';
+    return true;
+  }
+  if (/^#\/azkar\/.+/.test(hash)) {
+    window.location.hash = '#/azkar';
+    return true;
+  }
+  if (hash.startsWith('#/qibla')) {
+    window.location.hash = '#/prayer';
+    return true;
+  }
+  if (hash !== '#/' && hash !== '') {
+    window.location.hash = '#/';
+    return true;
+  }
+
+  // On Home screen -> allow Android to move app to background
+  return false;
+};
+
 function initApp() {
-  // Initialize theme
   initTheme();
-  
+
   const app = document.getElementById('app');
-  
-  // Create app structure
   app.innerHTML = `
     ${renderHeader()}
     <main id="page-container"></main>
     ${renderNavbar()}
   `;
-  
-  // Initialize header events
+
   initHeaderEvents();
-  
-  // Get page container
+
   const pageContainer = document.getElementById('page-container');
-  
-  // Register routes
+
   route('/', (container) => {
     renderHome(container);
     setCleanup(cleanupHome);
   });
-  
+
   route('/quran', (container) => {
     renderQuranList(container);
+    setCleanup(cleanupQuranList);
   });
-  
+
   route('/quran/:id', (container, params) => {
-    renderMushafReader(container, parseInt(params.id));
+    renderMushafReader(container, parseSurahId(params.id));
     setCleanup(cleanupMushafReader);
   });
-  
+
   route('/quran/:id/read', (container, params) => {
-    renderQuranReader(container, parseInt(params.id));
+    renderQuranReader(container, parseSurahId(params.id));
     setCleanup(cleanupQuranReader);
   });
-  
+
   route('/quran/:id/memorize', (container, params) => {
-    renderQuranReader(container, parseInt(params.id), null, true);
+    renderQuranReader(container, parseSurahId(params.id), null, true);
     setCleanup(cleanupQuranReader);
   });
-  
+
   route('/quran/:id/:ayah', (container, params) => {
-    renderMushafReader(container, parseInt(params.id), parseInt(params.ayah));
+    renderMushafReader(container, parseSurahId(params.id), parseAyahId(params.ayah));
     setCleanup(cleanupMushafReader);
   });
-  
+
   route('/azkar', (container) => {
     renderAzkarList(container);
   });
-  
+
   route('/azkar/:category', (container, params) => {
     renderAzkarView(container, params.category);
   });
-  
+
   route('/prayer', (container) => {
     renderPrayer(container);
+    setCleanup(cleanupPrayer);
   });
-  
+
   route('/qibla', (container) => {
     renderQibla(container);
     setCleanup(cleanupQibla);
   });
-  
-  // Enforce Parental Lock Routing
+
+  // Enforce Parental Lock initial route
   const parentalLock = getParentalLock();
   if (parentalLock) {
-    location.hash = `#/quran/${parentalLock.surahNumber}`;
+    window.location.hash = `#/quran/${parentalLock.surahNumber}`;
   }
 
-  // Initialize router
   initRouter(pageContainer);
-  
-  // Re-render on language change (full re-render for i18n)
+
+  // Re-render header, navbar, and active route on language change
   window.addEventListener('langchange', () => {
-    // Re-render header and navbar
     const header = document.querySelector('.app-header');
     if (header) {
       header.outerHTML = renderHeader();
       initHeaderEvents();
     }
-    
+
     const navbar = document.querySelector('.bottom-nav');
     if (navbar) {
       navbar.outerHTML = renderNavbar();
     }
-    
-    // Re-trigger current route
+
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   });
-  
-  // Re-render navbar on hash change to update active tab
-  window.addEventListener('hashchange', () => {
-    const navbar = document.querySelector('.bottom-nav');
-    if (navbar) {
-      navbar.outerHTML = renderNavbar();
-    }
-  });
+
+  // Lightweight active tab toggle (zero DOM rebuild on route change!)
+  window.addEventListener('hashchange', updateNavbarActive);
 }
 
-// Boot the app
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initApp);
 } else {
