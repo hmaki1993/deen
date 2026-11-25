@@ -51,6 +51,16 @@ export default {
   quran_play_short: 'Play',
   quran_bookmark_short: 'Bookmark',
   quran_page_load_error: 'Failed to load page',
+  quran_view_continuous: 'Continuous View',
+  quran_view_mushaf: 'Mushaf Pages',
+  quran_download_offline: 'Download Full Quran Offline',
+  quran_downloading_offline: 'Downloading full Quran...',
+  quran_offline_ready: 'Full Quran available offline ✓',
+  quran_download_failed: 'Download failed — check your internet connection',
+  quran_rub_0: 'Start of Hizb',
+  quran_rub_1: '1st Quarter',
+  quran_rub_2: 'Half Hizb',
+  quran_rub_3: '3rd Quarter',
 
   // Audio Player & Settings
   audio_settings_title: 'Playback Speed & Repeat',
@@ -92,6 +102,7 @@ export default {
   mem_no_speech: 'No speech detected. Listening...',
   mem_page_done: 'Alhamdulillah! Page recited successfully 🎉',
   mem_surah_done: 'Alhamdulillah! Surah recited successfully 🎉',
+  mem_next_page: 'Well done! Advancing to next page...',
 
   // Azkar
   azkar_title: 'Azkar',
@@ -110,6 +121,7 @@ export default {
   azkar_reset_done: 'Counter reset',
   azkar_reference: 'Reference',
   azkar_items: 'items',
+  azkar_all_done: 'May Allah accept! All Azkar completed 🎉',
 
   // Prayer Times
   prayer_title: 'Prayer Times',
@@ -125,6 +137,16 @@ export default {
   prayer_detect: 'Update Location',
   prayer_hijri: 'Hijri Date',
   prayer_fallback_cairo: 'Cairo, Egypt (Default)',
+  prayer_gps_loc: 'Saved GPS Location',
+  prayer_offline_badge: 'Offline Astronomical Calc',
+  prayer_notif_title: 'Prayer & Azkar Reminders',
+  prayer_notif_desc: 'Alerts for the 5 daily prayers plus Morning & Evening Azkar',
+  prayer_notif_enabled: 'Prayer & Azkar reminders enabled 🔔',
+  prayer_notif_disabled: 'Reminders turned off',
+  prayer_notif_denied: 'Please allow notifications in device settings',
+  notif_prayer_time: 'It is now time for',
+  notif_morning_azkar: 'Start your morning with remembrance — Morning Azkar 🌅',
+  notif_evening_azkar: 'End your day with remembrance — Evening Azkar 🌇',
 
   // Qibla
   qibla_title: 'Qibla Direction',
@@ -150,4 +172,6 @@ export default {
   hours: 'h',
   minutes: 'm',
   seconds: 's',
+  time_am: 'AM',
+  time_pm: 'PM',
 };

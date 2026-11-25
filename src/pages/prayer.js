@@ -10,9 +10,16 @@ import {
   getPrayerTimesByCity,
   getNextPrayer,
   getUserLocation,
+  getLastKnownLocation,
+  syncPrayerNotificationsIfEnabled,
 } from '../api/prayer.js';
+import {
+  getPrayerNotificationsEnabled,
+  setPrayerNotificationsEnabled,
+} from '../utils/storage.js';
 import { renderPrayerCard } from '../components/prayer-card.js';
 import { formatNum } from '../utils/helpers.js';
+import { showToast } from '../utils/toast.js';
 
 const PRAYER_ORDER = ['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
 let isMounted = false;
@@ -40,6 +47,17 @@ export async function render(container) {
         </div>
       </div>
 
+      <div class="prayer-notif-card glass-card">
+        <div class="prayer-notif-card__info">
+          <span class="prayer-notif-card__title">🔔 ${t('prayer_notif_title')}</span>
+          <span class="prayer-notif-card__desc">${t('prayer_notif_desc')}</span>
+        </div>
+        <label class="deen-switch" aria-label="${t('prayer_notif_title')}">
+          <input type="checkbox" id="prayer-notif-toggle" ${getPrayerNotificationsEnabled() ? 'checked' : ''} />
+          <span class="deen-switch__slider"></span>
+        </label>
+      </div>
+
       <div class="prayer-actions">
         <a href="#/qibla" class="btn btn--secondary">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
@@ -51,6 +69,25 @@ export async function render(container) {
 
   document.getElementById('btn-refresh-location')?.addEventListener('click', () => {
     loadAndRender(true);
+  });
+
+  document.getElementById('prayer-notif-toggle')?.addEventListener('change', async (e) => {
+    const enabled = Boolean(e.target.checked);
+    setPrayerNotificationsEnabled(enabled);
+    if (enabled) {
+      const granted = await syncPrayerNotificationsIfEnabled();
+      if (!isMounted) return;
+      if (granted === false && window.Capacitor?.isNativePlatform?.()) {
+        e.target.checked = false;
+        setPrayerNotificationsEnabled(false);
+        showToast(t('prayer_notif_denied'), 'error', 3000);
+      } else {
+        showToast(t('prayer_notif_enabled'), 'success', 2200);
+      }
+    } else {
+      await syncPrayerNotificationsIfEnabled();
+      if (isMounted) showToast(t('prayer_notif_disabled'), 'info', 1800);
+    }
   });
 
   await loadAndRender(false);
@@ -69,16 +106,26 @@ async function loadAndRender(forceRefresh) {
 
   try {
     let data;
-    let usedFallback = false;
+    let locNote = '';
+    let resolvedCoords = null;
     try {
       const pos = await getUserLocation(forceRefresh);
+      resolvedCoords = pos;
       data = await getPrayerTimes(pos.lat, pos.lng, 5, forceRefresh);
     } catch {
-      usedFallback = true;
-      data = await getPrayerTimesByCity('Cairo', 'Egypt', 5, forceRefresh);
+      const lastKnown = !forceRefresh ? getLastKnownLocation() : null;
+      if (lastKnown) {
+        resolvedCoords = lastKnown;
+        locNote = t('prayer_gps_loc');
+        data = await getPrayerTimes(lastKnown.lat, lastKnown.lng, 5, forceRefresh);
+      } else {
+        locNote = t('prayer_fallback_cairo');
+        data = await getPrayerTimesByCity('Cairo', 'Egypt', 5, forceRefresh);
+      }
     }
 
     if (!isMounted) return;
+    syncPrayerNotificationsIfEnabled(resolvedCoords);
 
     const next = getNextPrayer(data.timings);
     const lang = getLang();
@@ -91,12 +138,16 @@ async function loadAndRender(forceRefresh) {
           ? `${formatNum(h.day)} ${h.month.ar} ${formatNum(h.year)} هـ`
           : `${h.day} ${h.month.en} ${h.year} AH`;
 
+      const badges = [];
+      if (locNote) badges.push(locNote);
+      if (data.offline) badges.push(t('prayer_offline_badge'));
+
       hijriEl.innerHTML = `
         <div class="hijri-date">
           <span class="hijri-date__label">${t('prayer_hijri')}</span>
           <span class="hijri-date__value">${hijriText}</span>
           <span class="hijri-date__gregorian">${data.date.readable}</span>
-          ${usedFallback ? `<span class="hijri-date__loc">${t('prayer_fallback_cairo')}</span>` : ''}
+          ${badges.length > 0 ? `<span class="hijri-date__loc">${badges.join(' • ')}</span>` : ''}
         </div>
       `;
     }

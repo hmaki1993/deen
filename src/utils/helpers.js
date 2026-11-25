@@ -3,10 +3,23 @@
  * Common formatting and calculation functions used across the Deen app.
  */
 
-import { getLang } from '../i18n/index.js';
+import { t, getLang } from '../i18n/index.js';
 
 /** Arabic-Indic numeral characters (٠–٩) */
 const ARABIC_NUMS = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+
+/**
+ * Escape unsafe HTML characters before injecting text into innerHTML templates.
+ */
+export function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 /**
  * Convert a number to Arabic-Indic numerals.
@@ -38,6 +51,23 @@ export function formatTime(timeStr) {
   // Remove any timezone info in parentheses
   const clean = timeStr.replace(/\s*\(.*\)/, '').trim();
   return clean;
+}
+
+/**
+ * Format an HH:MM 24-hour time string into localized 12-hour display (e.g. "٣:٤٢ م" or "3:42 PM").
+ */
+export function formatPrayerTimeDisplay(timeStr) {
+  const clean = formatTime(timeStr);
+  if (!clean || !clean.includes(':')) return clean || '--:--';
+  const [rawH, rawM] = clean.split(':').map(Number);
+  if (!Number.isFinite(rawH) || !Number.isFinite(rawM)) return clean;
+
+  const isPm = rawH >= 12;
+  const hour12 = rawH % 12 === 0 ? 12 : rawH % 12;
+  const minPadded = String(rawM).padStart(2, '0');
+  const suffix = isPm ? t('time_pm') : t('time_am');
+  const formattedClock = `${formatNum(hour12)}:${formatNum(minPadded)}`;
+  return `${formattedClock} ${suffix}`;
 }
 
 /**

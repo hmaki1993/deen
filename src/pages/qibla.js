@@ -6,7 +6,7 @@
  */
 
 import { t } from '../i18n/index.js';
-import { getQiblaDirection, getUserLocation } from '../api/prayer.js';
+import { getQiblaDirection, getUserLocation, getLastKnownLocation, CAIRO_COORDS } from '../api/prayer.js';
 import { formatNum } from '../utils/helpers.js';
 
 let absoluteHandler = null;
@@ -70,7 +70,17 @@ export async function render(container) {
   `;
 
   try {
-    const pos = await getUserLocation();
+    let pos = null;
+    let usedCairoFallback = false;
+    try {
+      pos = await getUserLocation();
+    } catch {
+      pos = getLastKnownLocation();
+      if (!pos) {
+        pos = CAIRO_COORDS;
+        usedCairoFallback = true;
+      }
+    }
     if (!isMounted) return;
 
     const data = await getQiblaDirection(pos.lat, pos.lng);
@@ -89,6 +99,9 @@ export async function render(container) {
     const needle = document.getElementById('compass-needle');
     const ring = document.getElementById('compass-ring');
     const statusEl = document.getElementById('qibla-status');
+    if (usedCairoFallback && statusEl) {
+      statusEl.textContent = t('prayer_fallback_cairo');
+    }
 
     let smoothedAngle = direction;
     let hasReceivedSensor = false;

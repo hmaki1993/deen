@@ -10,8 +10,16 @@ import {
   getPrayerTimesByCity,
   getNextPrayer,
   getUserLocation,
+  getLastKnownLocation,
 } from '../api/prayer.js';
-import { formatCountdown, pad, formatTime, getTimeDiff, formatNum } from '../utils/helpers.js';
+import {
+  formatCountdown,
+  pad,
+  formatPrayerTimeDisplay,
+  getTimeDiff,
+  formatNum,
+  escapeHtml,
+} from '../utils/helpers.js';
 import { getLastRead, getBookmarks, removeBookmark } from '../utils/storage.js';
 
 let countdownInterval = null;
@@ -38,6 +46,7 @@ export function render(container) {
           <div class="prayer-widget__label">${t('home_next_prayer')}</div>
           <div class="prayer-widget__name" id="next-prayer-name">--</div>
           <div class="prayer-widget__time" id="next-prayer-time">--:--</div>
+          <div class="prayer-widget__loc hidden" id="next-prayer-loc"></div>
           <div class="prayer-widget__countdown">
             <span class="countdown-label">${t('home_time_remaining')}</span>
             <div class="countdown-timer" id="countdown-timer" dir="ltr">
@@ -107,9 +116,15 @@ function renderLastRead() {
   const lastRead = getLastRead();
   if (!lastRead) return '';
 
+  const safeSurahName = escapeHtml(lastRead.surahName);
+  const safeSnippet = lastRead.ayahText ? escapeHtml(lastRead.ayahText) : '';
+  const pageBadge = lastRead.pageNumber
+    ? ` • ${t('quran_page')} ${formatNum(lastRead.pageNumber)}`
+    : '';
+
   const ayahInfo = lastRead.ayahNumber
-    ? `<div class="last-read__ayah">${t('quran_ayah_single')} ${formatNum(lastRead.ayahNumber)}</div>
-       ${lastRead.ayahText ? `<div class="last-read__snippet">${lastRead.ayahText}</div>` : ''}`
+    ? `<div class="last-read__ayah">${t('quran_ayah_single')} ${formatNum(lastRead.ayahNumber)}${pageBadge}</div>
+       ${safeSnippet ? `<div class="last-read__snippet">${safeSnippet}</div>` : ''}`
     : '';
 
   const ayahPath = lastRead.ayahNumber ? `/${lastRead.ayahNumber}` : '';
@@ -122,7 +137,7 @@ function renderLastRead() {
       </span>
       <div class="last-read__info">
         <span class="last-read__label">${t('quran_last_read')}</span>
-        <span class="last-read__surah">${lastRead.surahName}</span>
+        <span class="last-read__surah">${safeSurahName}</span>
         ${ayahInfo}
       </div>
       <span class="last-read__action">${t('quran_continue')} ${arrow}</span>
@@ -147,9 +162,9 @@ function renderBookmarksList() {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2h12a2 2 0 0 1 2 2v18l-8-4-8 4V4a2 2 0 0 1 2-2z"/></svg>
               </span>
               <div class="bookmark-card__info">
-                <span class="bookmark-card__surah">${b.surahName}</span>
+                <span class="bookmark-card__surah">${escapeHtml(b.surahName)}</span>
                 <span class="bookmark-card__ayah">${t('quran_ayah_single')} ${formatNum(b.ayahNumber)}</span>
-                ${b.ayahText ? `<p class="bookmark-card__snippet">${b.ayahText}</p>` : ''}
+                ${b.ayahText ? `<p class="bookmark-card__snippet">${escapeHtml(b.ayahText)}</p>` : ''}
               </div>
             </a>
             <button class="bookmark-card__delete" data-surah="${b.surahNumber}" data-ayah="${b.ayahNumber}" aria-label="Delete Bookmark">
@@ -193,19 +208,40 @@ function initBookmarkDeleteEvents(container) {
 async function loadPrayerData() {
   try {
     let data;
+    let locLabel = '';
     try {
       const pos = await getUserLocation();
       data = await getPrayerTimes(pos.lat, pos.lng);
     } catch {
-      data = await getPrayerTimesByCity('Cairo', 'Egypt');
+      const lastKnown = getLastKnownLocation();
+      if (lastKnown) {
+        data = await getPrayerTimes(lastKnown.lat, lastKnown.lng);
+        locLabel = t('prayer_gps_loc');
+      } else {
+        data = await getPrayerTimesByCity('Cairo', 'Egypt');
+        locLabel = t('prayer_fallback_cairo');
+      }
     }
 
     if (!isMounted || !data?.timings) return;
 
+    const locEl = document.getElementById('next-prayer-loc');
+    if (locEl) {
+      const parts = [];
+      if (locLabel) parts.push(locLabel);
+      if (data.offline) parts.push(t('prayer_offline_badge'));
+      if (parts.length > 0) {
+        locEl.textContent = `📍 ${parts.join(' • ')}`;
+        locEl.classList.remove('hidden');
+      } else {
+        locEl.classList.add('hidden');
+      }
+    }
+
     activeTimings = data.timings;
     applyCurrentNextPrayer();
   } catch {
-    // Gracefully stay at placeholder if completely offline and uncached
+    // Gracefully stay at placeholder if unexpected error occurs
   }
 }
 
@@ -217,7 +253,7 @@ function applyCurrentNextPrayer() {
   const timeEl = document.getElementById('next-prayer-time');
 
   if (nameEl) nameEl.textContent = t(PRAYER_KEYS[next.name] || next.name);
-  if (timeEl) timeEl.textContent = formatTime(next.time);
+  if (timeEl) timeEl.textContent = formatPrayerTimeDisplay(next.time);
 
   startCountdown(next.time);
 }

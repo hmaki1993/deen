@@ -51,6 +51,16 @@ export default {
   quran_play_short: 'تشغيل',
   quran_bookmark_short: 'حفظ',
   quran_page_load_error: 'فشل تحميل الصفحة',
+  quran_view_continuous: 'القراءة المتصلة',
+  quran_view_mushaf: 'المصحف الورقي',
+  quran_download_offline: 'تحميل المصحف كاملاً بدون إنترنت',
+  quran_downloading_offline: 'جاري تحميل المصحف كاملاً...',
+  quran_offline_ready: 'المصحف متاح بالكامل بدون إنترنت ✓',
+  quran_download_failed: 'تعذر التحميل — تأكد من الاتصال بالإنترنت',
+  quran_rub_0: 'بداية الحزب',
+  quran_rub_1: 'الربع الأول',
+  quran_rub_2: 'نصف الحزب',
+  quran_rub_3: 'الربع الثالث',
 
   // Audio Player & Settings
   audio_settings_title: 'خيارات التكرار والسرعة',
@@ -92,6 +102,7 @@ export default {
   mem_no_speech: 'لم يتم اكتشاف صوت. جاري الاستماع...',
   mem_page_done: 'الحمد لله! تم تسميع الصفحة بنجاح 🎉',
   mem_surah_done: 'الحمد لله! تم تسميع السورة بنجاح 🎉',
+  mem_next_page: 'أحسنت! جاري الانتقال للصفحة التالية...',
 
   // Azkar
   azkar_title: 'الأذكار',
@@ -110,6 +121,7 @@ export default {
   azkar_reset_done: 'تمت إعادة العد',
   azkar_reference: 'المرجع',
   azkar_items: 'ذكر',
+  azkar_all_done: 'تقبل الله! أتممت جميع الأذكار بنجاح 🎉',
 
   // Prayer Times
   prayer_title: 'مواقيت الصلاة',
@@ -125,6 +137,16 @@ export default {
   prayer_detect: 'تحديث الموقع',
   prayer_hijri: 'التاريخ الهجري',
   prayer_fallback_cairo: 'القاهرة، مصر (افتراضي)',
+  prayer_gps_loc: 'موقعك المحفوظ',
+  prayer_offline_badge: 'حساب فلكي بدون إنترنت',
+  prayer_notif_title: 'تنبيهات الصلاة والأذكار',
+  prayer_notif_desc: 'إشعارات مواقيت الصلوات الخمس وأذكار الصباح والمساء',
+  prayer_notif_enabled: 'تم تفعيل تنبيهات الصلاة والأذكار 🔔',
+  prayer_notif_disabled: 'تم إيقاف التنبيهات',
+  prayer_notif_denied: 'يرجى السماح بالإشعارات من إعدادات الهاتف',
+  notif_prayer_time: 'حان الآن موعد صلاة',
+  notif_morning_azkar: 'ابدأ يومك بذكر الله — أذكار الصباح 🌅',
+  notif_evening_azkar: 'حصّن مساءك بذكر الله — أذكار المساء 🌇',
 
   // Qibla
   qibla_title: 'اتجاه القبلة',
@@ -150,4 +172,6 @@ export default {
   hours: 'ساعة',
   minutes: 'دقيقة',
   seconds: 'ثانية',
+  time_am: 'ص',
+  time_pm: 'م',
 };

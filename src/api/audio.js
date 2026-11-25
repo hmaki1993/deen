@@ -4,9 +4,11 @@
  * ayah repetition, range playback, proper fading-audio cleanup, and bounded offline error handling.
  */
 
+import { Capacitor } from '@capacitor/core';
 import { getReciter } from '../utils/storage.js';
+import { getSurahMeta } from './quran.js';
 import { showToast } from '../utils/toast.js';
-import { t } from '../i18n/index.js';
+import { t, getLang } from '../i18n/index.js';
 
 export const RECITERS = [
   { id: 'ar.alafasy', nameAr: 'مشاري العفاسي', nameEn: 'Mishary Alafasy' },
@@ -174,36 +176,26 @@ export const audioPlayer = {
   },
 
   _attachPlaybackListeners(audio, currentOp) {
-    let crossfadeFired = false;
+    let settled = false;
 
     audio.addEventListener('playing', () => {
       this.consecutiveErrors = 0;
     });
 
-    audio.addEventListener('timeupdate', () => {
-      if (crossfadeFired) return;
-      if (this.scheduleOpId !== currentOp || !this.isPlaying) return;
-      if (!audio.duration || !isFinite(audio.duration)) return;
-
-      const remaining = (audio.duration - audio.currentTime) / this.playbackRate;
-      if (remaining <= 0.35) {
-        crossfadeFired = true;
-        this._advanceToNext();
-      }
-    });
-
+    // Advance strictly on 'ended' (using preloadedAudio buffer) so the final
+    // Tajweed madd / qalqalah syllable of each ayah is never clipped or overlapped!
     audio.addEventListener('ended', () => {
-      if (crossfadeFired) return;
+      if (settled) return;
       if (this.scheduleOpId !== currentOp || !this.isPlaying) return;
-      crossfadeFired = true;
+      settled = true;
       this._advanceToNext();
     });
 
     audio.addEventListener('error', () => {
-      if (audio._cleaned || crossfadeFired) return;
+      if (audio._cleaned || settled) return;
       if (this.scheduleOpId !== currentOp || !this.isPlaying) return;
 
-      crossfadeFired = true;
+      settled = true;
       this.consecutiveErrors++;
 
       // Stop runaway offline loop after 2 consecutive failures
@@ -293,10 +285,10 @@ export const audioPlayer = {
       audio = this._createAudio(url);
     }
 
-    // Track fading old audio so stop()/pause() never leaks overlapping audio
+    // Dispose completed audio immediately before starting preloaded next ayah (zero voice overlap)
     disposeAudio(this.fadingAudio);
-    const oldAudio = this.activeAudio;
-    this.fadingAudio = oldAudio;
+    this.fadingAudio = null;
+    disposeAudio(this.activeAudio);
     this.activeAudio = audio;
 
     this._attachPlaybackListeners(audio, currentOp);
@@ -308,17 +300,6 @@ export const audioPlayer = {
         this.notify();
       }
     });
-
-    if (oldAudio) {
-      const cleanupOld = () => {
-        disposeAudio(oldAudio);
-        if (this.fadingAudio === oldAudio) {
-          this.fadingAudio = null;
-        }
-      };
-      oldAudio.addEventListener('ended', cleanupOld, { once: true });
-      setTimeout(cleanupOld, 1000);
-    }
 
     this._preloadNext(nextInfo.ayah);
   },
@@ -386,8 +367,70 @@ export const audioPlayer = {
     this.notify();
   },
 
+  _syncMediaSessionAndBackground() {
+    const lang = getLang();
+    const reciterId = getReciter();
+    const reciterObj = RECITERS.find((r) => r.id === reciterId) || RECITERS[0];
+    const reciterName = lang === 'ar' ? reciterObj.nameAr : reciterObj.nameEn;
+    const surahMeta = this.surahNumber ? getSurahMeta(this.surahNumber) : null;
+    const surahTitle = surahMeta
+      ? lang === 'ar'
+        ? surahMeta.name
+        : surahMeta.englishName
+      : t('quran_title');
+    const ayahLabel = this.currentAyah
+      ? `${surahTitle} — ${t('quran_ayah_single')} ${this.currentAyah.numberInSurah}`
+      : surahTitle;
+
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      try {
+        if (this.currentAyah && typeof MediaMetadata !== 'undefined') {
+          navigator.mediaSession.metadata = new MediaMetadata({
+            title: ayahLabel,
+            artist: reciterName,
+            album: t('app_name'),
+          });
+        }
+        navigator.mediaSession.playbackState = this.isPlaying
+          ? 'playing'
+          : this.currentAyah
+            ? 'paused'
+            : 'none';
+
+        if (!this._mediaHandlersBound) {
+          this._mediaHandlersBound = true;
+          navigator.mediaSession.setActionHandler('play', () => {
+            if (!this.isPlaying) this.togglePlay();
+          });
+          navigator.mediaSession.setActionHandler('pause', () => {
+            if (this.isPlaying) this.togglePlay();
+          });
+          navigator.mediaSession.setActionHandler('previoustrack', () => this.playPrevious());
+          navigator.mediaSession.setActionHandler('nexttrack', () => this.playNext());
+          navigator.mediaSession.setActionHandler('stop', () => this.stop());
+        }
+      } catch {
+        // Ignore unsupported mediaSession handlers on older WebViews
+      }
+    }
+
+    if (Capacitor.isNativePlatform() && Capacitor?.Plugins?.DeenSystem) {
+      const shouldKeepAlive = Boolean(this.isPlaying && this.currentAyah);
+      if (this._lastBgState !== shouldKeepAlive || this._lastBgTitle !== ayahLabel) {
+        this._lastBgState = shouldKeepAlive;
+        this._lastBgTitle = ayahLabel;
+        Capacitor.Plugins.DeenSystem.setBackgroundAudio({
+          active: shouldKeepAlive,
+          title: ayahLabel,
+          subtitle: reciterName,
+        }).catch(() => {});
+      }
+    }
+  },
+
   notify() {
     document.body.classList.toggle('audio-active', Boolean(this.currentAyah || this.isSurahMode));
+    this._syncMediaSessionAndBackground();
     if (this.listeners && this.listeners.length > 0) {
       const snapshot = {
         isPlaying: this.isPlaying,

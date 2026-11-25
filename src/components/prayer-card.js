@@ -8,8 +8,8 @@
  * ════════════════════════════════════════════
  */
 
-import { t, getLang } from '../i18n/index.js';
-import { formatTime } from '../utils/helpers.js';
+import { t } from '../i18n/index.js';
+import { formatPrayerTimeDisplay } from '../utils/helpers.js';
 
 // ── Localization key map ───────────────────
 
@@ -53,7 +53,7 @@ export function renderPrayerCard(prayerName, time, isNext = false) {
         <span class="prayer-card__name">${t(labelKey)}</span>
         ${isNext ? `<span class="prayer-card__badge">${t('prayer_next')}</span>` : ''}
       </div>
-      <div class="prayer-card__time">${formatTime(time)}</div>
+      <div class="prayer-card__time">${formatPrayerTimeDisplay(time)}</div>
     </div>
   `;
 }

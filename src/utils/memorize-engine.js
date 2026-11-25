@@ -191,10 +191,12 @@ export function createSpeechController({ onStart, onResult, onStatus, onStateCha
     }
 
     recognition = new SpeechRecognition();
-    recognition.lang = 'ar-EG';
+    // Use Standard Classical/Modern Arabic ('ar-SA') instead of colloquial 'ar-EG'
+    // for dramatically higher accuracy on Quranic vocabulary (ث / ذ / ظ / ق / الصراط)
+    recognition.lang = 'ar-SA';
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.maxAlternatives = 2;
+    recognition.maxAlternatives = 4;
 
     recognition.onstart = () => {
       starting = false;
@@ -252,6 +254,12 @@ export function createSpeechController({ onStart, onResult, onStatus, onStateCha
 
     wanted = true;
     document.addEventListener('visibilitychange', handlePageHide);
+
+    // Play start chime BEFORE muting STREAM_MUSIC so its tail is never clipped!
+    playRecordChime();
+    await new Promise((r) => setTimeout(r, 185));
+    if (destroyed || !wanted) return;
+
     await safeMuteMedia();
     if (destroyed || !wanted) {
       await safeUnmuteMedia();
@@ -270,7 +278,8 @@ export function createSpeechController({ onStart, onResult, onStatus, onStateCha
     if (onStateChange) onStateChange(true);
   }
 
-  function stop() {
+  async function stop(withChime = false) {
+    const wasWanted = wanted;
     wanted = false;
     starting = false;
     active = false;
@@ -284,8 +293,13 @@ export function createSpeechController({ onStart, onResult, onStatus, onStateCha
         // Ignore
       }
     }
-    safeUnmuteMedia();
     if (onStateChange) onStateChange(false);
+
+    // Unmute STREAM_MUSIC FIRST, then play stop chime so it is clearly audible on Android!
+    await safeUnmuteMedia();
+    if (withChime && wasWanted && !destroyed) {
+      setTimeout(() => playStopChime(), 45);
+    }
   }
 
   function destroy() {

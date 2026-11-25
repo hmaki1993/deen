@@ -10,6 +10,7 @@ import { renderHeader, initHeaderEvents } from './components/header.js';
 import { renderNavbar, updateNavbarActive } from './components/navbar.js';
 import { closeReciterModal } from './components/reciter-modal.js';
 import { getParentalLock } from './utils/storage.js';
+import { syncPrayerNotificationsIfEnabled } from './api/prayer.js';
 
 // Pages
 import { render as renderHome, cleanup as cleanupHome } from './pages/home.js';
@@ -183,6 +184,11 @@ function initApp() {
 
   // Lightweight active tab toggle (zero DOM rebuild on route change!)
   window.addEventListener('hashchange', updateNavbarActive);
+
+  // Refresh rolling 7-day local prayer & azkar alarms in background if enabled
+  setTimeout(() => {
+    syncPrayerNotificationsIfEnabled();
+  }, 1800);
 }
 
 if (document.readyState === 'loading') {

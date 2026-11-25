@@ -24,6 +24,9 @@ export function getAzkarByCategory(categoryId) {
     azkar: category.azkar.map(z => ({
       id: z.id,
       text: lang === 'ar' ? z.textAr : z.textEn,
+      textAr: z.textAr,
+      textEn: z.textEn,
+      isEn: lang === 'en',
       count: z.count,
       reference: lang === 'ar' ? z.referenceAr : z.referenceEn,
     })),

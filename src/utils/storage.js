@@ -31,8 +31,15 @@ export function remove(key) {
   }
 }
 
-export function saveLastRead(surahNumber, surahName, ayahNumber = null, ayahText = null) {
-  save('last-read', { surahNumber, surahName, ayahNumber, ayahText, timestamp: Date.now() });
+export function saveLastRead(surahNumber, surahName, ayahNumber = null, ayahText = null, pageNumber = null) {
+  save('last-read', {
+    surahNumber,
+    surahName,
+    ayahNumber,
+    ayahText,
+    pageNumber,
+    timestamp: Date.now(),
+  });
 }
 
 export function getLastRead() {
@@ -74,27 +81,70 @@ export function getReciter() {
   return saved || 'ar.alafasy';
 }
 
-export function saveParentalLock(pin, surahNumber, ayahIndex = 0) {
+function hashPinSync(pin) {
+  const salted = `deen-lock-v2:${String(pin)}:786`;
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let i = 0; i < salted.length; i++) {
+    const ch = salted.charCodeAt(i);
+    h1 ^= ch;
+    h1 = Math.imul(h1, 0x01000193) >>> 0;
+    h2 ^= ch + i;
+    h2 = Math.imul(h2, 0x85ebca6b) >>> 0;
+  }
+  return `${h1.toString(16).padStart(8, '0')}${h2.toString(16).padStart(8, '0')}`;
+}
+
+export function saveParentalLock(pin, surahNumber, ayahIndex = 0, pageNum = null) {
   const validSurah = parseInt(surahNumber, 10);
   if (!pin || String(pin).length !== 4 || !Number.isFinite(validSurah) || validSurah < 1 || validSurah > 114) {
     console.warn('Invalid parental lock data ignored');
     return;
   }
+  const validPage = pageNum ? Math.min(604, Math.max(1, parseInt(pageNum, 10) || 1)) : null;
   save('parental-lock', {
-    pin: String(pin),
+    pinHash: hashPinSync(pin),
     surahNumber: validSurah,
     ayahIndex: Math.max(0, parseInt(ayahIndex, 10) || 0),
+    pageNum: validPage,
   });
+}
+
+export function updateParentalLockProgress(ayahIndex, pageNum = null) {
+  const current = load('parental-lock', null);
+  if (!current) return;
+  current.ayahIndex = Math.max(0, parseInt(ayahIndex, 10) || 0);
+  if (pageNum) {
+    current.pageNum = Math.min(604, Math.max(1, parseInt(pageNum, 10) || 1));
+  }
+  save('parental-lock', current);
+}
+
+export function verifyParentalPin(inputPin) {
+  if (!inputPin || String(inputPin).length !== 4) return false;
+  const data = load('parental-lock', null);
+  if (!data) return false;
+  if (typeof data.pinHash === 'string') {
+    return data.pinHash === hashPinSync(inputPin);
+  }
+  if (typeof data.pin === 'string') {
+    return data.pin === String(inputPin);
+  }
+  return false;
 }
 
 export function getParentalLock() {
   const data = load('parental-lock', null);
   if (!data) return null;
   const surahNum = parseInt(data.surahNumber, 10);
-  // Auto-heal corrupted lock objects from earlier bug where arguments were swapped
+  // Migrate legacy plaintext pin to hashed format automatically
+  if (typeof data.pin === 'string' && data.pin.length === 4 && !data.pinHash) {
+    data.pinHash = hashPinSync(data.pin);
+    delete data.pin;
+    save('parental-lock', data);
+  }
   if (
-    typeof data.pin !== 'string' ||
-    data.pin.length !== 4 ||
+    typeof data.pinHash !== 'string' ||
     !Number.isFinite(surahNum) ||
     surahNum < 1 ||
     surahNum > 114
@@ -103,14 +153,31 @@ export function getParentalLock() {
     return null;
   }
   return {
-    pin: data.pin,
+    pinHash: data.pinHash,
     surahNumber: surahNum,
     ayahIndex: Math.max(0, parseInt(data.ayahIndex, 10) || 0),
+    pageNum: data.pageNum ? Math.min(604, Math.max(1, parseInt(data.pageNum, 10) || 1)) : null,
   };
 }
 
 export function clearParentalLock() {
   remove('parental-lock');
+}
+
+export function isFullQuranDownloaded() {
+  return Boolean(load('quran-offline-complete', false));
+}
+
+export function setFullQuranDownloaded(done) {
+  save('quran-offline-complete', Boolean(done));
+}
+
+export function getPrayerNotificationsEnabled() {
+  return Boolean(load('prayer-notifications-enabled', false));
+}
+
+export function setPrayerNotificationsEnabled(enabled) {
+  save('prayer-notifications-enabled', Boolean(enabled));
 }
 
 // ─── Azkar Daily Progress Persistence ─────────────────────────

@@ -311,7 +311,7 @@ export function compareTexts(spoken, target) {
   const targetWords = normalizeArabicWords(target).split(' ').filter(Boolean);
   if (targetWords.length === 0) return false;
 
-  const recentSpokenWords = spokenWords.slice(-(targetWords.length + 3));
+  const recentSpokenWords = spokenWords.slice(-(Math.max(targetWords.length * 2, 24) + 8));
   const normalizedRecentSpoken = normalizeArabicForMatching(recentSpokenWords.join(' '));
   const normalizedTarget = normalizeArabicForMatching(target);
 

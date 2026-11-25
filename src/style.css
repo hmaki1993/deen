@@ -443,8 +443,15 @@ body.modal-open .bottom-nav {
   font-size: 1.05rem;
   font-weight: 600;
   color: var(--text-primary);
-  margin: 4px 0 12px;
+  margin: 4px 0 8px;
   font-variant-numeric: tabular-nums;
+}
+
+.prayer-widget__loc {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
 }
 
 .countdown-label {
@@ -703,6 +710,41 @@ body.modal-open .bottom-nav {
   margin-bottom: 16px;
 }
 
+.offline-quran-bar {
+  display: inline-flex;
+  align-items: center;
+}
+
+.offline-quran-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-glow);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  transition: transform 0.15s ease, opacity 0.2s ease;
+}
+
+.offline-quran-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.offline-quran-bar--ready {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--success-text);
+  background: rgba(52, 199, 89, 0.12);
+  border: 1px solid rgba(52, 199, 89, 0.3);
+  padding: 5px 11px;
+  border-radius: 10px;
+}
+
 .search-input {
   width: 100%;
   min-height: 46px;
@@ -861,29 +903,36 @@ body.modal-open .bottom-nav {
 
 .mushaf-header .page-title {
   font-family: 'Amiri', 'Noto Sans Arabic', serif;
-  font-size: 1.45rem;
+  font-size: 1.28rem;
   font-weight: 700;
   color: var(--accent);
-  margin: 0;
+  margin: 0 8px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mushaf-header__actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .mushaf-header .icon-btn,
 .reciter-page-header .icon-btn {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--bg-card);
   border: 1px solid var(--border);
   color: var(--text-primary);
+  flex-shrink: 0;
   transition: transform 0.15s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
@@ -1935,6 +1984,22 @@ body.fullscreen-mushaf .mushaf-page-meta-header {
   line-height: 1.75;
 }
 
+[data-lang="en"] .zikr-card__text--ar {
+  font-family: 'Amiri Quran', 'Amiri', serif;
+  font-size: 1.32rem;
+  line-height: 2.35;
+  margin-bottom: 10px;
+}
+
+.zikr-card__translit {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.92rem;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  text-align: center;
+  margin-bottom: 16px;
+}
+
 .zikr-card__counter {
   display: flex;
   align-items: center;
@@ -1944,17 +2009,49 @@ body.fullscreen-mushaf .mushaf-page-meta-header {
 }
 
 .zikr-card__tap {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
-  width: 92px;
-  height: 92px;
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
   background: var(--accent-glow);
-  border: 2px solid rgba(var(--accent-rgb), 0.35);
+  border: none;
   user-select: none;
-  transition: transform 0.15s ease, border-color 0.2s ease;
+  transition: transform 0.15s ease, background-color 0.2s ease;
+}
+
+.zikr-ring-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+  pointer-events: none;
+}
+
+.zikr-ring-track {
+  fill: none;
+  stroke: rgba(var(--accent-rgb), 0.22);
+  stroke-width: 4;
+}
+
+.zikr-ring-progress {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.22s ease-out, stroke 0.25s ease;
+}
+
+.zikr-card--completed .zikr-ring-track {
+  stroke: rgba(52, 199, 89, 0.24);
+}
+
+.zikr-card--completed .zikr-ring-progress {
+  stroke: var(--success);
 }
 
 .zikr-card__tap:active {
@@ -2115,6 +2212,82 @@ body.fullscreen-mushaf .mushaf-page-meta-header {
 .prayer-actions {
   text-align: center;
   padding: 8px 0;
+}
+
+.prayer-notif-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  border-radius: 16px;
+}
+
+.prayer-notif-card__info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.prayer-notif-card__title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.prayer-notif-card__desc {
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.deen-switch {
+  position: relative;
+  display: inline-block;
+  width: 50px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.deen-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.deen-switch__slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: var(--bg-secondary);
+  border: 1.5px solid var(--border-light);
+  border-radius: 28px;
+  transition: background-color 0.22s ease, border-color 0.22s ease;
+}
+
+.deen-switch__slider::before {
+  content: '';
+  position: absolute;
+  height: 20px;
+  width: 20px;
+  left: 3px;
+  bottom: 2.5px;
+  background-color: var(--text-secondary);
+  border-radius: 50%;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.22s ease;
+}
+
+.deen-switch input:checked + .deen-switch__slider {
+  background-color: var(--accent-glow-strong);
+  border-color: var(--accent);
+}
+
+.deen-switch input:checked + .deen-switch__slider::before {
+  transform: translateX(21px);
+  background-color: var(--accent);
 }
 
 /* Qibla Compass */

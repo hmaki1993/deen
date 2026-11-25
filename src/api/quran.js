@@ -4,8 +4,9 @@
  * In-Memory LRU caching and in-flight request deduplication.
  */
 
-import { SURAH_START_PAGES } from '../utils/quran-metadata.js';
-import { getQuranCache, setQuranCache } from '../utils/quran-db.js';
+import { SURAH_START_PAGES, SURAH_META_LIST } from '../utils/quran-metadata.js';
+import { getQuranCache, setQuranCache, setQuranCacheBulk } from '../utils/quran-db.js';
+import { setFullQuranDownloaded } from '../utils/storage.js';
 import { normalizeArabicWords } from '../utils/arabic.js';
 
 const BASE_URL = 'https://api.alquran.cloud/v1';
@@ -54,7 +55,88 @@ async function cachedFetch(cacheKey, url, errorLabel) {
 }
 
 export async function getSurahList() {
-  return cachedFetch('surah-list', `${BASE_URL}/surah`, 'surah list');
+  return SURAH_META_LIST;
+}
+
+export function getSurahMeta(number) {
+  const validNum = Math.min(114, Math.max(1, parseInt(number, 10) || 1));
+  return SURAH_META_LIST[validNum - 1] || SURAH_META_LIST[0];
+}
+
+let fullDownloadInflight = null;
+
+/**
+ * Download the complete Uthmani Mushaf (all 114 Surahs + all 604 Mushaf pages)
+ * in a single compressed payload and persist into IndexedDB for 100% offline reading.
+ */
+export async function downloadFullQuranOffline() {
+  if (fullDownloadInflight) return fullDownloadInflight;
+
+  fullDownloadInflight = (async () => {
+    try {
+      const json = await fetchJsonWithTimeout(`${BASE_URL}/quran/quran-uthmani`, 45000);
+      const surahs = json?.data?.surahs;
+      if (json?.code !== 200 || !Array.isArray(surahs) || surahs.length !== 114) {
+        throw new Error('Invalid full Quran payload');
+      }
+
+      const bulkEntries = [];
+      const pagesMap = new Map();
+      for (let p = 1; p <= 604; p++) {
+        pagesMap.set(p, []);
+      }
+
+      for (const s of surahs) {
+        const surahMeta = {
+          number: s.number,
+          name: s.name,
+          englishName: s.englishName,
+          englishNameTranslation: s.englishNameTranslation,
+          revelationType: s.revelationType,
+          numberOfAyahs: s.ayahs.length,
+        };
+
+        bulkEntries.push([
+          `surah-${s.number}`,
+          {
+            ...surahMeta,
+            ayahs: s.ayahs,
+          },
+        ]);
+
+        for (const a of s.ayahs) {
+          const pageList = pagesMap.get(a.page);
+          if (pageList) {
+            pageList.push({
+              ...a,
+              surah: surahMeta,
+            });
+          }
+        }
+      }
+
+      for (let p = 1; p <= 604; p++) {
+        bulkEntries.push([
+          `page-${p}`,
+          {
+            number: p,
+            ayahs: pagesMap.get(p) || [],
+          },
+        ]);
+      }
+
+      bulkEntries.push(['surah-list', SURAH_META_LIST]);
+      const ok = await setQuranCacheBulk(bulkEntries);
+      if (ok) {
+        setFullQuranDownloaded(true);
+      }
+      return ok;
+    } finally {
+      fullDownloadInflight = null;
+    }
+  })();
+
+  return fullDownloadInflight;
 }
 
 export async function getSurah(number) {

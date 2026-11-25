@@ -9,7 +9,7 @@
  */
 
 import { t, getLang } from '../i18n/index.js';
-import { getPage, getSurahStartPage, getPageForAyah, getSurah } from '../api/quran.js';
+import { getPage, getSurahStartPage, getPageForAyah, getSurah, getSurahMeta } from '../api/quran.js';
 import { formatNum } from '../utils/helpers.js';
 import { audioPlayer } from '../api/audio.js';
 import {
@@ -27,6 +27,8 @@ import {
   saveLastRead,
   addBookmark,
   saveParentalLock,
+  updateParentalLockProgress,
+  verifyParentalPin,
   getParentalLock,
   clearParentalLock,
 } from '../utils/storage.js';
@@ -37,8 +39,6 @@ import {
 } from '../utils/arabic.js';
 import {
   createSpeechController,
-  playRecordChime,
-  playStopChime,
   renderMemorizeDock,
   renderPinModal,
   wrapWordsInElement,
@@ -76,8 +76,63 @@ let lastActiveMemorizeEl = null;
 
 // Parental Lock State
 let isParentalLocked = false;
-let parentalPin = null;
 let pendingPinAction = null; // 'lock' | 'unlock' | 'hint' | 'exit' | 'back'
+let autoSaveReadTimer = null;
+
+function getLocalizedSurahTitle(surahNum) {
+  const meta = getSurahMeta(surahNum);
+  return getLang() === 'ar' ? meta.name : meta.englishName;
+}
+
+function syncActivePageContext(pageNum) {
+  const pageData = pageCache.get(pageNum);
+  if (!pageData || !Array.isArray(pageData.ayahs) || pageData.ayahs.length === 0) return;
+
+  const hasCurrentSurah = pageData.ayahs.some((a) => a.surah.number === activeSurahNum);
+  if (!hasCurrentSurah) {
+    activeSurahNum = pageData.ayahs[0].surah.number;
+  }
+
+  const titleEl = document.getElementById('mushaf-surah-title');
+  if (titleEl) {
+    titleEl.textContent = getLocalizedSurahTitle(activeSurahNum);
+  }
+
+  if (!audioPlayer.isPlaying && audioPlayer.surahNumber !== activeSurahNum) {
+    const targetSurah = activeSurahNum;
+    getSurah(targetSurah)
+      .then((surq) => {
+        if (!isMounted || audioPlayer.isPlaying || activeSurahNum !== targetSurah) return;
+        audioPlayer.init(surq.ayahs, surq.number, (state) => updateAudioPlayerUI(state));
+      })
+      .catch(() => {});
+  }
+
+  // Debounced auto-save of "Last Read" so reading progress is never lost on exit!
+  if (autoSaveReadTimer) clearTimeout(autoSaveReadTimer);
+  autoSaveReadTimer = setTimeout(() => {
+    if (!isMounted || activePageNum !== pageNum) return;
+    const targetAyah =
+      pageData.ayahs.find((a) => a.surah.number === activeSurahNum) || pageData.ayahs[0];
+    if (!targetAyah) return;
+    let cleanText = targetAyah.text || '';
+    if (
+      targetAyah.numberInSurah === 1 &&
+      targetAyah.surah.number !== 1 &&
+      targetAyah.surah.number !== 9
+    ) {
+      cleanText = stripBismillah(cleanText);
+    }
+    const snippet = cleanText.length > 38 ? `${cleanText.substring(0, 38)}...` : cleanText;
+    saveLastRead(
+      targetAyah.surah.number,
+      targetAyah.surah.name,
+      targetAyah.numberInSurah,
+      snippet,
+      pageNum
+    );
+  }, 850);
+}
 
 function cachePageLocally(pageNum, data) {
   if (pageCache.has(pageNum)) pageCache.delete(pageNum);
@@ -94,6 +149,12 @@ export async function render(container, surahNumber, targetAyahNumber = null) {
 
   activeSurahNum = surahNumber || 1;
   activePageNum = getSurahStartPage(activeSurahNum);
+
+  const initialLock = getParentalLock();
+  if (!targetAyahNumber && initialLock && initialLock.surahNumber === activeSurahNum && initialLock.pageNum) {
+    activePageNum = initialLock.pageNum;
+  }
+
   pendingHighlightAyah = targetAyahNumber
     ? { surahNum: activeSurahNum, ayahNum: targetAyahNumber }
     : null;
@@ -109,16 +170,24 @@ export async function render(container, surahNumber, targetAyahNumber = null) {
         <button id="quran-back-btn" class="icon-btn" aria-label="${t('back')}">
           <svg class="icon-back-arrow" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
         </button>
-        <h1 class="page-title">${t('quran_title')}</h1>
+        <h1 class="page-title" id="mushaf-surah-title">${getLocalizedSurahTitle(activeSurahNum)}</h1>
         <div class="mushaf-header__actions">
+          <button id="btn-play-page" class="icon-btn" aria-label="${t('quran_play_surah')}" title="${t('quran_play_surah')}">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20"></polygon></svg>
+          </button>
+          <button id="btn-view-continuous" class="icon-btn" aria-label="${t('quran_view_continuous')}" title="${t('quran_view_continuous')}">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="16" y2="18"/>
+            </svg>
+          </button>
           <button id="btn-switch-read" class="icon-btn" aria-label="${t('quran_memorize')}" title="${t('quran_memorize')}">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
               <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
             </svg>
           </button>
           <button id="btn-reciter" class="icon-btn" aria-label="${t('quran_reciter')}" title="${t('quran_reciter')}">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
               <circle cx="12" cy="7" r="4"></circle>
             </svg>
@@ -224,12 +293,43 @@ function bindHeaderAndModalEvents(container) {
   document.getElementById('btn-reciter')?.addEventListener('click', openReciterModal);
   document.getElementById('btn-switch-read')?.addEventListener('click', () => toggleMemorizeMode());
 
+  document.getElementById('btn-view-continuous')?.addEventListener('click', () => {
+    if (isMemorizeMode && isParentalLocked) {
+      showPinModal('exit');
+      return;
+    }
+    window.location.hash = `#/quran/${activeSurahNum}/read`;
+  });
+
+  document.getElementById('btn-play-page')?.addEventListener('click', async () => {
+    if (isMemorizeMode) return;
+    if (audioPlayer.isPlaying) {
+      audioPlayer.togglePlay();
+      return;
+    }
+    const pageData = pageCache.get(activePageNum);
+    const startAyahOnPage =
+      pageData?.ayahs?.find((a) => a.surah.number === activeSurahNum) || pageData?.ayahs?.[0];
+    const targetSurahNum = startAyahOnPage?.surah?.number || activeSurahNum;
+    try {
+      const surah = await getSurah(targetSurahNum);
+      if (!isMounted) return;
+      activeSurahNum = surah.number;
+      audioPlayer.init(surah.ayahs, surah.number, (state) => updateAudioPlayerUI(state));
+      const ayahObj = startAyahOnPage
+        ? surah.ayahs.find((a) => a.numberInSurah === startAyahOnPage.numberInSurah)
+        : surah.ayahs[0];
+      if (ayahObj) audioPlayer.playAyah(ayahObj);
+      else audioPlayer.playFullSurah(surah.number);
+    } catch (err) {
+      console.warn('Error starting page audio:', err);
+    }
+  });
+
   document.getElementById('memorize-mic-btn')?.addEventListener('click', () => {
     if (speechController?.isListening()) {
-      playStopChime();
-      stopListening();
+      stopListening(true);
     } else {
-      playRecordChime();
       startListening();
     }
   });
@@ -414,6 +514,7 @@ function setupObservers(viewport) {
 
         const oldPageNum = activePageNum;
         activePageNum = pageNum;
+        syncActivePageContext(activePageNum);
 
         if (isMemorizeMode && oldPageNum !== pageNum) {
           resetMemorizeForPage(activePageNum);
@@ -493,12 +594,19 @@ async function loadPageContent(pageNum, wrapper) {
 
     if (pageData.ayahs && pageData.ayahs.length > 0) {
       const firstAyah = pageData.ayahs[0];
-      const hizbQuarter = firstAyah.hizbQuarter;
-      const juz = firstAyah.juz;
+      const lastAyah = pageData.ayahs[pageData.ayahs.length - 1];
+      // Detect mid-page Hizb/Quarter transitions so new quarters starting mid-page are shown
+      const hizbQuarter = lastAyah.hizbQuarter || firstAyah.hizbQuarter;
+      const juz = lastAyah.juz || firstAyah.juz;
       const hizbNum = Math.ceil(hizbQuarter / 4);
       const quarterIndex = (hizbQuarter - 1) % 4;
 
-      const rubLabels = ['بداية الحزب', 'الربع الأول', 'نصف الحزب', 'الربع الثالث'];
+      const rubLabels = [
+        t('quran_rub_0'),
+        t('quran_rub_1'),
+        t('quran_rub_2'),
+        t('quran_rub_3'),
+      ];
       const rubText = rubLabels[quarterIndex] || '';
 
       html += `
@@ -545,6 +653,10 @@ async function loadPageContent(pageNum, wrapper) {
     wrapper.innerHTML = html;
     wrapper.dataset.loaded = 'true';
     loadedPages.add(pageNum);
+
+    if (pageNum === activePageNum) {
+      syncActivePageContext(pageNum);
+    }
 
     if (isMemorizeMode && pageNum === activePageNum) {
       prepareActivePageWordsForMemorize();
@@ -663,7 +775,6 @@ function toggleMemorizeMode(forceOpen = false) {
     const savedLock = getParentalLock();
     if (savedLock && savedLock.surahNumber === activeSurahNum) {
       isParentalLocked = true;
-      parentalPin = savedLock.pin;
       currentMemorizeIndex = Math.min(savedLock.ayahIndex || 0, Math.max(0, pageAyahs.length - 1));
       updateLockUI();
     } else {
@@ -750,6 +861,10 @@ function revealAyah(index, isHint = false) {
   sessionMaxTargetReached = 0;
   buildSessionTargets();
 
+  if (isParentalLocked) {
+    updateParentalLockProgress(currentMemorizeIndex, activePageNum);
+  }
+
   syncMemorizeVisibility();
   updateMemorizeUI();
 
@@ -786,12 +901,55 @@ function updateMemorizeUI() {
   }
 }
 
-function celebrateCompletion() {
-  stopListening();
+async function celebrateCompletion() {
+  const wasListening = Boolean(speechController?.isListening());
+  stopListening(false);
   if (navigator.vibrate) {
     try { navigator.vibrate([80, 40, 80, 40, 160]); } catch {}
   }
-  showToast(t('mem_page_done'), 'success', 4000);
+
+  // Check if the current Surah continues onto the next Mushaf page (critical for Parental Lock!)
+  const completedSurah = pageAyahs[pageAyahs.length - 1]?.surah?.number || activeSurahNum;
+  if (activePageNum < 604) {
+    try {
+      const nextPageNum = activePageNum + 1;
+      let nextPageData = pageCache.get(nextPageNum);
+      if (!nextPageData) {
+        nextPageData = await getPage(nextPageNum);
+        if (!isMounted) return;
+        cachePageLocally(nextPageNum, nextPageData);
+      }
+
+      const continuesNextPage = nextPageData?.ayahs?.some(
+        (a) => a.surah.number === completedSurah
+      );
+      if (continuesNextPage && isMemorizeMode) {
+        showToast(t('mem_next_page'), 'success', 2600);
+        setTimeout(async () => {
+          if (!isMounted || !isMemorizeMode) return;
+          activePageNum = nextPageNum;
+          const nextWrapper = document.getElementById(`page-wrapper-${nextPageNum}`);
+          if (nextWrapper) {
+            nextWrapper.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+            await loadPageContent(nextPageNum, nextWrapper);
+          }
+          if (!isMounted || !isMemorizeMode) return;
+          resetMemorizeForPage(nextPageNum);
+          if (isParentalLocked) {
+            updateParentalLockProgress(0, nextPageNum);
+          }
+          if (wasListening) {
+            startListening();
+          }
+        }, 700);
+        return;
+      }
+    } catch {
+      // Fallback to standard page completion toast
+    }
+  }
+
+  showToast(isParentalLocked ? t('mem_surah_done') : t('mem_page_done'), 'success', 4000);
 }
 
 function ensureSpeechController() {
@@ -965,6 +1123,9 @@ function ensureSpeechController() {
 
       syncMemorizeVisibility();
       if (advancedAyah) {
+        if (isParentalLocked) {
+          updateParentalLockProgress(currentMemorizeIndex, activePageNum);
+        }
         updateMemorizeUI();
         if (currentMemorizeIndex >= pageAyahs.length) {
           celebrateCompletion();
@@ -981,8 +1142,8 @@ async function startListening() {
   await ensureSpeechController().start();
 }
 
-function stopListening() {
-  speechController?.stop();
+function stopListening(withChime = false) {
+  speechController?.stop(withChime);
   document.body.classList.add('memorize-revealed');
   updateMicUI(false);
 }
@@ -1033,18 +1194,17 @@ function handlePinSubmit() {
   }
 
   if (pendingPinAction === 'lock') {
-    parentalPin = pin;
     isParentalLocked = true;
     updateLockUI();
-    // Fixed parameter order: (pin, surahNumber, ayahIndex)
     const currentSurahForLock = pageAyahs[currentMemorizeIndex]?.surah?.number || activeSurahNum;
-    saveParentalLock(pin, currentSurahForLock, currentMemorizeIndex);
+    activeSurahNum = currentSurahForLock;
+    saveParentalLock(pin, currentSurahForLock, currentMemorizeIndex, activePageNum);
     hidePinModal();
     showToast(t('mem_pin_locked'), 'success');
     return;
   }
 
-  if (pin !== parentalPin) {
+  if (!verifyParentalPin(pin)) {
     showToast(t('mem_pin_wrong'), 'error');
     pinInputs.forEach((i) => (i.value = ''));
     pinInputs[0]?.focus();
@@ -1056,7 +1216,6 @@ function handlePinSubmit() {
 
   if (action === 'unlock') {
     isParentalLocked = false;
-    parentalPin = null;
     updateLockUI();
     clearParentalLock();
     showToast(t('mem_pin_unlocked'), 'success');
@@ -1064,13 +1223,11 @@ function handlePinSubmit() {
     revealAyah(currentMemorizeIndex, true);
   } else if (action === 'exit') {
     isParentalLocked = false;
-    parentalPin = null;
     updateLockUI();
     clearParentalLock();
     toggleMemorizeMode(false);
   } else if (action === 'back') {
     isParentalLocked = false;
-    parentalPin = null;
     clearParentalLock();
     window.location.hash = '#/quran';
   }
@@ -1195,7 +1352,7 @@ function initContextMenuEvents() {
     document.querySelectorAll('.mushaf-ayah.ayah-bookmarked').forEach((el) => el.classList.remove('ayah-bookmarked'));
     data.el?.classList.add('ayah-bookmarked');
 
-    saveLastRead(data.surahNum, data.surahName, data.ayahNum, snippet);
+    saveLastRead(data.surahNum, data.surahName, data.ayahNum, snippet, activePageNum);
     addBookmark(data.surahNum, data.surahName, data.ayahNum, snippet);
     showToast(t('quran_bookmarked'), 'success', 2000);
 
@@ -1227,9 +1384,13 @@ export function cleanup() {
     speechController = null;
   }
 
+  if (autoSaveReadTimer) {
+    clearTimeout(autoSaveReadTimer);
+    autoSaveReadTimer = null;
+  }
+
   isMemorizeMode = false;
   isParentalLocked = false;
-  parentalPin = null;
   pendingPinAction = null;
   pageAyahs = [];
   selectedAyahData = null;

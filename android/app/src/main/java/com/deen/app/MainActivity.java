@@ -1,6 +1,7 @@
 package com.deen.app;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -60,6 +61,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(VolumeControl.class);
+        registerPlugin(DeenSystemPlugin.class);
 
         safePermissionLauncher = registerForActivityResult(
             new ActivityResultContracts.RequestMultiplePermissions(),
@@ -92,14 +94,20 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void configureSystemBars() {
+        applySystemTheme(this, false);
+    }
+
+    public static void applySystemTheme(Activity activity, boolean isLight) {
+        if (activity == null) return;
         try {
-            getWindow().setStatusBarColor(Color.parseColor("#0A0A0F"));
-            getWindow().setNavigationBarColor(Color.parseColor("#0A0A0F"));
+            int barColor = Color.parseColor(isLight ? "#F5F2EB" : "#0A0A0F");
+            activity.getWindow().setStatusBarColor(barColor);
+            activity.getWindow().setNavigationBarColor(barColor);
             WindowInsetsControllerCompat controller =
-                WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+                WindowCompat.getInsetsController(activity.getWindow(), activity.getWindow().getDecorView());
             if (controller != null) {
-                controller.setAppearanceLightStatusBars(false);
-                controller.setAppearanceLightNavigationBars(false);
+                controller.setAppearanceLightStatusBars(isLight);
+                controller.setAppearanceLightNavigationBars(isLight);
             }
         } catch (Exception ignored) {
         }

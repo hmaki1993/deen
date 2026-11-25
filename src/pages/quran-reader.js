@@ -13,6 +13,8 @@ import {
   getLastRead,
   addBookmark,
   saveParentalLock,
+  updateParentalLockProgress,
+  verifyParentalPin,
   getParentalLock,
   clearParentalLock,
 } from '../utils/storage.js';
@@ -37,8 +39,6 @@ import {
 } from '../utils/arabic.js';
 import {
   createSpeechController,
-  playRecordChime,
-  playStopChime,
   renderMemorizeDock,
   renderPinModal,
   wrapWordsInElement,
@@ -63,7 +63,6 @@ let lastRevealTime = 0;
 let lastActiveMemorizeEl = null;
 
 let isParentalLocked = false;
-let parentalPin = null;
 let pendingPinAction = null;
 
 export async function render(container, surahNumber, targetAyahNumber = null, autoStartMemorize = false) {
@@ -143,6 +142,16 @@ export async function render(container, surahNumber, targetAyahNumber = null, au
     const lastRead = getLastRead();
     const bookmarkedAyah =
       targetAyahNumber || (lastRead && lastRead.surahNumber === surahNumber ? lastRead.ayahNumber : null);
+
+    // Auto-save Last Read when opening Surah in continuous mode
+    if (!lastRead || lastRead.surahNumber !== currentSurah.number) {
+      let firstText = currentSurah.ayahs[0]?.text || '';
+      if (currentSurah.number !== 1 && currentSurah.number !== 9) {
+        firstText = stripBismillah(firstText);
+      }
+      const snippet = firstText.length > 35 ? `${firstText.substring(0, 35)}...` : firstText;
+      saveLastRead(currentSurah.number, currentSurah.name, 1, snippet);
+    }
 
     const content = document.getElementById('reader-content');
     if (!content) return;
@@ -255,10 +264,8 @@ function bindPinAndMemorizeControls() {
 
   document.getElementById('memorize-mic-btn')?.addEventListener('click', () => {
     if (speechController?.isListening()) {
-      playStopChime();
-      stopListening();
+      stopListening(true);
     } else {
-      playRecordChime();
       startListening();
     }
   });
@@ -381,7 +388,6 @@ function toggleMemorizeMode(forceOpen = false) {
     const savedLock = getParentalLock();
     if (savedLock && currentSurah && savedLock.surahNumber === currentSurah.number) {
       isParentalLocked = true;
-      parentalPin = savedLock.pin;
       currentMemorizeIndex = Math.min(savedLock.ayahIndex || 0, currentSurah.ayahs.length - 1);
       updateLockUI();
     } else {
@@ -501,7 +507,7 @@ function checkRecitation(transcript, finalCount) {
   const allTargetWords = normalizeArabicWords(targetText).split(' ').filter(Boolean);
   const targetWords = allTargetWords.slice(maxMatchedCountAtSessionStart);
   const spokenWords = normalizeArabicWords(transcript).split(' ').filter(Boolean);
-  const recentSpoken = spokenWords.slice(-(targetWords.length + 3));
+  const recentSpoken = spokenWords.slice(-(Math.max(targetWords.length * 2, 24) + 8));
 
   const { targetCount } = matchAyahPrefix(recentSpoken, targetWords);
   const totalMatched = maxMatchedCountAtSessionStart + targetCount;
@@ -559,6 +565,9 @@ function revealAyah(localNum, isHint = false) {
   currentMemorizeIndex++;
   maxMatchedCountForCurrentAyah = 0;
   maxMatchedCountAtSessionStart = 0;
+  if (isParentalLocked) {
+    updateParentalLockProgress(currentMemorizeIndex);
+  }
   updateMemorizeUI();
 
   if (currentSurah && currentMemorizeIndex >= currentSurah.ayahs.length) {
@@ -616,8 +625,8 @@ async function startListening() {
   await ensureSpeechController().start();
 }
 
-function stopListening() {
-  speechController?.stop();
+function stopListening(withChime = false) {
+  speechController?.stop(withChime);
   updateMicUI(false);
 }
 
@@ -664,7 +673,6 @@ function handlePinSubmit() {
   }
 
   if (pendingPinAction === 'lock') {
-    parentalPin = pin;
     isParentalLocked = true;
     saveParentalLock(pin, currentSurah.number, currentMemorizeIndex);
     updateLockUI();
@@ -673,7 +681,7 @@ function handlePinSubmit() {
     return;
   }
 
-  if (pin !== parentalPin) {
+  if (!verifyParentalPin(pin)) {
     showToast(t('mem_pin_wrong'), 'error');
     inputs.forEach((input) => (input.value = ''));
     inputs[0]?.focus();
@@ -685,7 +693,6 @@ function handlePinSubmit() {
 
   if (action === 'unlock') {
     isParentalLocked = false;
-    parentalPin = null;
     clearParentalLock();
     updateLockUI();
     showToast(t('mem_pin_unlocked'), 'success');
@@ -696,13 +703,11 @@ function handlePinSubmit() {
     }
   } else if (action === 'exit') {
     isParentalLocked = false;
-    parentalPin = null;
     clearParentalLock();
     updateLockUI();
     toggleMemorizeMode(false);
   } else if (action === 'back') {
     isParentalLocked = false;
-    parentalPin = null;
     clearParentalLock();
     window.location.hash = '#/quran';
   }
@@ -793,7 +798,6 @@ export function cleanup() {
 
   isMemorizeMode = false;
   isParentalLocked = false;
-  parentalPin = null;
   pendingPinAction = null;
   currentSurah = null;
   selectedAyah = null;
